@@ -17,7 +17,7 @@ use Carp ();
 
 Class::Accessor::Lite->mk_accessors(qw(aws_access_key_id aws_secret_access_key secure furl endpoint));
 
-our $VERSION = '0.02_01';
+our $VERSION = '0.02_02';
 our $DEFAULT_ENDPOINT = 's3.amazonaws.com';
 our $XMLNS = 'http://s3.amazonaws.com/doc/2006-03-01/';
 
@@ -296,6 +296,25 @@ sub create_bucket {
     return 1;
 }
 
+sub find_or_create_bucket {
+
+    my $self = shift;
+    my( $bucket, $headers ) = @_;
+    validate_pos( @_, 
+                  { type => SCALAR, 
+                    callbacks => { bucket_name => \&validate_bucket } },
+                  { type => HASHREF, optional => 1, } );
+
+    my $res = $self->list_objects( $bucket, { 'max-keys' => 0 } );
+    if ($res) {
+        return $res;
+	} elsif ($self->error->http_code eq "404") {
+        return $self->create_bucket($bucket, $headers || {});
+    } else {
+        return;
+    }
+}
+
 sub delete_bucket {
     my $self = shift;
     my( $bucket ) = @_;
@@ -563,7 +582,7 @@ Furl::S3 - Furl based S3 client library.
 
 =head1 VERSION
 
-0.02_01
+0.02_02
 
 =head1 SYNOPSIS
 
@@ -679,6 +698,12 @@ returns a HASH-REF
 
 create new bucket.
 returns a boolean value. 
+
+=head2 find_or_create_bucket($bucket, [ \%headers ])
+
+find or create new bucket.
+if your bucket is exists, returns a bucket HASH-REF
+if your bucket is not exists, create new bucket and returns a boolean value. 
 
 =head2 delete_bucket($bucket);
 
