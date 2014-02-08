@@ -17,7 +17,7 @@ use Carp ();
 
 Class::Accessor::Lite->mk_accessors(qw(aws_access_key_id aws_secret_access_key secure furl endpoint));
 
-our $VERSION = '0.02_05';
+our $VERSION = '0.02_06';
 our $DEFAULT_ENDPOINT = 's3.amazonaws.com';
 our $XMLNS = 'http://s3.amazonaws.com/doc/2006-03-01/';
 
@@ -318,8 +318,23 @@ sub find_or_create_bucket {
 
 sub delete_bucket {
     my $self = shift;
-    my( $bucket ) = @_;
-    validate_pos( @_, 1 );
+    my( $bucket, $options ) = @_;
+    validate_pos( @_, 
+                  { type => SCALAR, 
+                    callbacks => { bucket_name => \&validate_bucket } },
+                  { type => HASHREF, optional => 1, } );
+
+    if (ref($options) eq "HASH" && exists $options->{recursive}) {
+        my @object_sets;
+        my $objects = $self->list_objects($bucket) or return;
+        if (scalar(@{$objects->{contents}}) > 0) {
+            foreach my $content (@{$objects->{contents}}) {
+                push @object_sets, { key => $content->{key} };
+            }
+            $self->delete_multi_objects($bucket, \@object_sets) or return;
+        }
+    }
+
     my $res = $self->request( 'DELETE', $bucket );
     unless ( _http_is_success($res->{code}) ) {
         return $self->error( $res );
@@ -613,7 +628,7 @@ Furl::S3 - Furl based S3 client library.
 
 =head1 VERSION
 
-0.02_05
+0.02_06
 
 =head1 SYNOPSIS
 
@@ -736,15 +751,19 @@ find or create new bucket.
 if your bucket is exists, returns a bucket HASH-REF
 if your bucket is not exists, create new bucket and returns a bucket HASH-REF. 
 
-=head2 delete_bucket($bucket);
+=head2 delete_bucket($bucket, [ \%options ]);
 
 delete bucket.
 returns a boolean value.
 
+Even if more objects are exists in your buckets, you can delete bucket.
+
+   $s3->delete_bucket($bucket, { recursive => 1 });
+
 =head2 list_objects($bucket, [ \%params ])
 
 list all objects in specified bucket.
-returna a HASH-REF 
+return a HASH-REF 
 
 
   {
@@ -899,11 +918,11 @@ initiate_multipart_upload, upload_part and complete_multipart_upload sample
   my $upload_id = $s3->initiate_multipart_upload($bucket, $key);
    
   my $i = 1;
-  my @part_number_etag_sets
+  my @part_number_etag_sets;
   open my $fh, "<", $key or die $!;
   while (read $fh, my $buffer, $chunk_size) {
       my $etag = $s3->upload_part($bucket, $key, $buffer, { uploadId => $upload_id, partNumber => $i });
-      push @part_number_etag_set, { part_number => $i, etag => $etag };
+      push @part_number_etag_sets, { part_number => $i, etag => $etag };
       $i++;
   }
   close $fh;
